@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trap-audit:dev
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATA_DIR: /data
+    ports:
+      # 宿主机端口可通过 .env 或环境变量 HOST_PORT 配置
+      - "${HOST_BIND:-127.0.0.1}:${HOST_PORT:-8080}:8080"
+    volumes:
+      - audit-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,urllib.request; port=os.environ.get('PORT','8080'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/healthz', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped
+
+  # 单次容器：等待 api 健康后，运行代码测试 + 0<=-1 证书核对 + HTTP 冒烟，
+  # 完成后退出并以 0/1 给出退出码（docker compose ps 可查看 Exited (0)）。
+  verify:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trap-audit:dev
+    command: ["/app/scripts/verify.sh"]
+    environment:
+      BASE_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  audit-data:
